@@ -111,22 +111,38 @@ router.post("/login", (req, res) => {
     });
 });
 
-// ================= EXPENSES =================
-router.get("/expenses", (req, res) => {
-
-    const sql = "SELECT * FROM expenses ORDER BY id DESC";
-
-    db.query(sql, (err, result) => {
-
-        if (err) {
-            return res.status(500).json(err);
-        }
-
-        res.json(result);
-
+// ================= USER SETTINGS =================
+router.get("/users/:id", (req, res) => {
+    const { id } = req.params;
+    const sql = "SELECT id, username, email, alert_threshold, push_enabled FROM users WHERE id = ?";
+    db.query(sql, [id], (err, result) => {
+        if (err || result.length === 0) return res.status(500).json({ success: false });
+        res.json({ success: true, data: result[0] });
     });
-
 });
 
+router.put("/users/:id", (req, res) => {
+    const { id } = req.params;
+    const { username, alert_threshold, push_enabled } = req.body;
+    
+    let sql = "UPDATE users SET username = ?";
+    const params = [username];
+    
+    if (alert_threshold !== undefined) {
+        sql += ", alert_threshold = ?";
+        params.push(alert_threshold);
+    }
+    if (push_enabled !== undefined) {
+        sql += ", push_enabled = ?";
+        params.push(push_enabled);
+    }
+    sql += " WHERE id = ?";
+    params.push(id);
+
+    db.query(sql, params, (err) => {
+        if (err) return res.status(500).json({ success: false, message: "อัปเดตไม่สำเร็จ" });
+        res.json({ success: true, message: "อัปเดตข้อมูลสำเร็จ" });
+    });
+});
 
 module.exports = router;

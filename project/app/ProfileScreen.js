@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import {
     View, Text, StyleSheet, SafeAreaView, ScrollView,
-    TouchableOpacity, Alert, ActivityIndicator,
+    TouchableOpacity, Alert, ActivityIndicator, TextInput, Switch
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
@@ -9,131 +9,141 @@ import { useAuth } from "./context/AuthContext";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 const API = "http://10.0.2.2:3000/api";
-
-function fmt(n) {
-    return Number(n).toLocaleString("th-TH", { minimumFractionDigits: 2 });
-}
-
-function StatChip({ icon, label, value, color }) {
-    return (
-        <View style={chip.container}>
-            <Ionicons name={icon} size={18} color={color} />
-            <View>
-                <Text style={chip.label}>{label}</Text>
-                <Text style={[chip.value, { color }]}>{value}</Text>
-            </View>
-        </View>
-    );
-}
-const chip = StyleSheet.create({
-    container: {
-        flex: 1, backgroundColor: "#17213A", borderRadius: 14, padding: 14,
-        flexDirection: "row", alignItems: "center", gap: 10,
-        borderWidth: 1, borderColor: "#23304F",
-    },
-    label: { color: "#8F9BB3", fontSize: 11 },
-    value: { fontSize: 15, fontWeight: "bold" },
-});
+function fmt(n) { return Number(n).toLocaleString("th-TH", { minimumFractionDigits: 2 }); }
 
 export default function ProfileScreen() {
-    const navigation         = useNavigation();
-    const { currentUser, logout } = useAuth();
+    const navigation = useNavigation();
+    const { currentUser, logout, login } = useAuth();
 
     const [summary, setSummary] = useState({ totalIncome: 0, totalExpense: 0, balance: 0 });
+    const [settings, setSettings] = useState({ username: "", alert_threshold: "1000", push_enabled: true });
+    
     const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [editMode, setEditMode] = useState(false);
 
     const currentMonth = new Date().toISOString().slice(0, 7);
 
     const loadData = async () => {
         if (!currentUser) return;
         try {
-            const res = await axios.get(`${API}/summary?userId=${currentUser.id}&month=${currentMonth}`);
-            if (res.data.success) setSummary(res.data.data);
+            const [summRes, userRes] = await Promise.all([
+                axios.get(`${API}/summary?userId=${currentUser.id}&month=${currentMonth}`),
+                axios.get(`${API}/users/${currentUser.id}`)
+            ]);
+            if (summRes.data.success) setSummary(summRes.data.data);
+            if (userRes.data?.success) {
+                const u = userRes.data.data;
+                setSettings({
+                    username: u.username,
+                    alert_threshold: String(u.alert_threshold),
+                    push_enabled: u.push_enabled === 1
+                });
+            }
         } catch {/* ignore */}
         finally { setLoading(false); }
     };
 
     useFocusEffect(useCallback(() => { loadData(); }, [currentUser]));
 
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const res = await axios.put(`${API}/users/${currentUser.id}`, {
+                username: settings.username,
+                alert_threshold: parseFloat(settings.alert_threshold) || 1000,
+                push_enabled: settings.push_enabled ? 1 : 0
+            });
+            if (res.data.success) {
+                Alert.alert("สำเร็จ", "อัปเดตข้อมูลส่วนตัวเรียบร้อย");
+                setEditMode(false);
+                // update local context gently
+                login({ ...currentUser, username: settings.username }); 
+            } else Alert.alert("ผิดพลาด", res.data.message);
+        } catch { Alert.alert("ผิดพลาด", "ไม่สามารถอัปเดตได้"); }
+        finally { setSaving(false); }
+    };
+
     const handleLogout = () => {
         Alert.alert("ออกจากระบบ", "คุณต้องการออกจากระบบหรือไม่?", [
             { text: "ยกเลิก", style: "cancel" },
-            {
-                text: "ออกจากระบบ", style: "destructive",
-                onPress: async () => {
-                    await logout();
-                    navigation.replace("Login");
-                },
-            },
+            { text: "ออกจากระบบ", style: "destructive", onPress: async () => { await logout(); navigation.replace("Login"); } },
         ]);
     };
 
-    const initials = (currentUser?.username || "U").slice(0, 2).toUpperCase();
+    const initials = (settings.username || currentUser?.username || "U").slice(0, 2).toUpperCase();
 
-    if (loading) {
-        return (
-            <View style={{ flex: 1, backgroundColor: "#0B1120", justifyContent: "center", alignItems: "center" }}>
-                <ActivityIndicator size="large" color="#21D07A" />
-            </View>
-        );
-    }
+    if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#21D07A" /></View>;
 
     return (
         <SafeAreaView style={s.safe}>
             <ScrollView contentContainerStyle={s.container}>
-                {/* Avatar & Name */}
+                {/* Header Profile */}
                 <View style={s.profileHeader}>
-                    <View style={s.avatarCircle}>
-                        <Text style={s.initials}>{initials}</Text>
-                    </View>
-                    <Text style={s.name}>{currentUser?.username || "ผู้ใช้งาน"}</Text>
-                    <Text style={s.email}>{currentUser?.email || ""}</Text>
+                    <View style={s.avatarCircle}><Text style={s.initials}>{initials}</Text></View>
+                    <Text style={s.name}>{settings.username || "ผู้ใช้งาน"}</Text>
+                    <Text style={s.email}>{currentUser?.email}</Text>
                 </View>
 
-                {/* Monthly Stats */}
-                <Text style={s.sectionTitle}>สรุปเดือนนี้</Text>
-                <View style={s.statsRow}>
-                    <StatChip icon="trending-up"   label="รายรับ"     value={`฿ ${fmt(summary.totalIncome)}`}   color="#21D07A" />
-                    <StatChip icon="trending-down"  label="รายจ่าย"   value={`฿ ${fmt(summary.totalExpense)}`}  color="#EF4444" />
-                </View>
-                <View style={[s.balRow, { backgroundColor: summary.balance >= 0 ? "#16422E" : "#4B1818" }]}>
-                    <Text style={s.balLabel}>ยอดคงเหลือเดือนนี้</Text>
-                    <Text style={[s.balVal, { color: summary.balance >= 0 ? "#21D07A" : "#EF4444" }]}>
-                        ฿ {fmt(summary.balance)}
-                    </Text>
-                </View>
-
-                {/* About */}
-                <Text style={s.sectionTitle}>เกี่ยวกับแอป</Text>
-                <View style={s.infoCard}>
-                    <View style={s.infoRow}>
-                        <Ionicons name="phone-portrait" size={18} color="#8F9BB3" />
-                        <Text style={s.infoLabel}>ชื่อแอป</Text>
-                        <Text style={s.infoVal}>Expense Tracker</Text>
-                    </View>
-                    <View style={s.divider} />
-                    <View style={s.infoRow}>
-                        <Ionicons name="git-branch" size={18} color="#8F9BB3" />
-                        <Text style={s.infoLabel}>เวอร์ชัน</Text>
-                        <Text style={s.infoVal}>1.0.0</Text>
-                    </View>
-                    <View style={s.divider} />
-                    <View style={s.infoRow}>
-                        <Ionicons name="server" size={18} color="#8F9BB3" />
-                        <Text style={s.infoLabel}>ฐานข้อมูล</Text>
-                        <Text style={s.infoVal}>MySQL</Text>
-                    </View>
-                    <View style={s.divider} />
-                    <View style={s.infoRow}>
-                        <Ionicons name="code-slash" size={18} color="#8F9BB3" />
-                        <Text style={s.infoLabel}>Framework</Text>
-                        <Text style={s.infoVal}>Expo SDK 56 + React Native</Text>
+                {/* Monthly Summary mini-card */}
+                <View style={s.card}>
+                    <Text style={s.cardTitle}>สรุปยอดเดือนนี้</Text>
+                    <View style={s.statsRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={s.statLabel}>รายรับ</Text>
+                            <Text style={[s.statVal, { color: "#21D07A" }]}>+฿{fmt(summary.totalIncome)}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={s.statLabel}>รายจ่าย</Text>
+                            <Text style={[s.statVal, { color: "#EF4444" }]}>-฿{fmt(summary.totalExpense)}</Text>
+                        </View>
                     </View>
                 </View>
 
-                {/* Logout */}
+                {/* Settings & Profile Edit */}
+                <View style={s.card}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                        <Text style={s.cardTitle}>ตั้งค่าบัญชี</Text>
+                        <TouchableOpacity onPress={() => setEditMode(!editMode)}>
+                            <Ionicons name={editMode ? "close" : "create-outline"} size={24} color="#A78BFA" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {editMode ? (
+                        <View>
+                            <Text style={s.label}>ชื่อผู้ใช้</Text>
+                            <TextInput style={s.input} value={settings.username} onChangeText={t => setSettings({...settings, username: t})} />
+                            
+                            <Text style={s.label}>แจ้งเตือนรายการใหญ่ (บาท)</Text>
+                            <TextInput style={s.input} keyboardType="decimal-pad" value={settings.alert_threshold} onChangeText={t => setSettings({...settings, alert_threshold: t})} />
+                            
+                            <View style={s.switchRow}>
+                                <Text style={s.label}>เปิดรับการแจ้งเตือน</Text>
+                                <Switch value={settings.push_enabled} onValueChange={v => setSettings({...settings, push_enabled: v})} trackColor={{ false: "#1E293B", true: "#21D07A" }} />
+                            </View>
+
+                            <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
+                                {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveTxt}>บันทึกการตั้งค่า</Text>}
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <View>
+                            <View style={s.infoRow}>
+                                <Text style={s.infoLabel}>แจ้งเตือนรายการใหญ่</Text>
+                                <Text style={s.infoVal}>฿{fmt(settings.alert_threshold)}</Text>
+                            </View>
+                            <View style={s.infoRow}>
+                                <Text style={s.infoLabel}>การแจ้งเตือน</Text>
+                                <Text style={[s.infoVal, { color: settings.push_enabled ? "#21D07A" : "#EF4444" }]}>
+                                    {settings.push_enabled ? "เปิดใช้งาน" : "ปิดใช้งาน"}
+                                </Text>
+                            </View>
+                        </View>
+                    )}
+                </View>
+
                 <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
-                    <Ionicons name="log-out" size={22} color="#EF4444" />
+                    <Ionicons name="log-out-outline" size={24} color="#EF4444" />
                     <Text style={s.logoutTxt}>ออกจากระบบ</Text>
                 </TouchableOpacity>
             </ScrollView>
@@ -142,42 +152,27 @@ export default function ProfileScreen() {
 }
 
 const s = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: "#0B1120" },
-    container: { padding: 24, paddingBottom: 48 },
-    profileHeader: { alignItems: "center", marginBottom: 28 },
-    avatarCircle: {
-        width: 90, height: 90, borderRadius: 45,
-        backgroundColor: "#21D07A", justifyContent: "center", alignItems: "center",
-        marginBottom: 14, elevation: 8,
-        shadowColor: "#21D07A", shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.5, shadowRadius: 10,
-    },
+    safe: { flex: 1, backgroundColor: "#060A13" },
+    center: { flex: 1, backgroundColor: "#060A13", justifyContent: "center", alignItems: "center" },
+    container: { padding: 24, paddingBottom: 40 },
+    profileHeader: { alignItems: "center", marginBottom: 30 },
+    avatarCircle: { width: 90, height: 90, borderRadius: 45, backgroundColor: "rgba(167, 139, 250, 0.2)", justifyContent: "center", alignItems: "center", marginBottom: 16, borderWidth: 1, borderColor: "rgba(167, 139, 250, 0.5)" },
     initials: { color: "#fff", fontSize: 32, fontWeight: "bold" },
     name: { color: "#fff", fontSize: 24, fontWeight: "bold" },
-    email: { color: "#8F9BB3", fontSize: 15, marginTop: 4 },
-    sectionTitle: { color: "#fff", fontSize: 16, fontWeight: "bold", marginBottom: 12 },
-    statsRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
-    balRow: {
-        borderRadius: 16, padding: 16, flexDirection: "row",
-        justifyContent: "space-between", alignItems: "center", marginBottom: 24,
-    },
-    balLabel: { color: "#fff", fontSize: 15, fontWeight: "600" },
-    balVal: { fontSize: 20, fontWeight: "bold" },
-    infoCard: {
-        backgroundColor: "#17213A", borderRadius: 18, padding: 4,
-        marginBottom: 24, borderWidth: 1, borderColor: "#23304F",
-    },
-    infoRow: {
-        flexDirection: "row", alignItems: "center", gap: 12,
-        paddingHorizontal: 16, paddingVertical: 14,
-    },
-    infoLabel: { color: "#8F9BB3", fontSize: 14, flex: 1 },
-    infoVal: { color: "#fff", fontSize: 14, fontWeight: "500" },
-    divider: { height: 1, backgroundColor: "#23304F", marginHorizontal: 16 },
-    logoutBtn: {
-        flexDirection: "row", alignItems: "center", justifyContent: "center",
-        gap: 10, backgroundColor: "#2D1B1B", borderRadius: 16, padding: 18,
-        borderWidth: 1, borderColor: "#EF444444",
-    },
+    email: { color: "#94A3B8", fontSize: 15, marginTop: 4 },
+    card: { backgroundColor: "#0F172A", borderRadius: 20, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: "#1E293B" },
+    cardTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },
+    statsRow: { flexDirection: "row", marginTop: 16, gap: 12 },
+    statLabel: { color: "#94A3B8", fontSize: 14, marginBottom: 4 },
+    statVal: { fontSize: 22, fontWeight: "bold" },
+    label: { color: "#94A3B8", fontSize: 14, fontWeight: "600", marginBottom: 8 },
+    input: { backgroundColor: "rgba(23, 33, 58, 0.5)", color: "#fff", borderRadius: 12, padding: 14, fontSize: 16, marginBottom: 16, borderWidth: 1, borderColor: "#1E293B" },
+    switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
+    saveBtn: { backgroundColor: "#21D07A", borderRadius: 14, padding: 16, alignItems: "center" },
+    saveTxt: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+    infoRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1E293B" },
+    infoLabel: { color: "#94A3B8", fontSize: 15 },
+    infoVal: { color: "#fff", fontSize: 15, fontWeight: "600" },
+    logoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(239, 68, 68, 0.1)", borderRadius: 16, padding: 18, borderWidth: 1, borderColor: "rgba(239, 68, 68, 0.3)" },
     logoutTxt: { color: "#EF4444", fontSize: 17, fontWeight: "bold" },
 });

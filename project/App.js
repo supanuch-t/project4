@@ -1,3 +1,4 @@
+import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, View } from "react-native";
@@ -7,6 +8,7 @@ import LoginScreen from "./app/LoginScreen";
 import RegisterScreen from "./app/RegisterScreen";
 import BottomTabs from "./app/BottomTabs";
 import AddExpenseScreen from "./app/AddExpenseScreen";
+import ResponsiveWrapper from "./components/ResponsiveWrapper";
 
 const Stack = createNativeStackNavigator();
 
@@ -15,9 +17,11 @@ function RootNavigator() {
 
     if (loading) {
         return (
-            <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0B1120" }}>
-                <ActivityIndicator size="large" color="#21D07A" />
-            </View>
+            <ResponsiveWrapper>
+                <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0B1120" }}>
+                    <ActivityIndicator size="large" color="#21D07A" />
+                </View>
+            </ResponsiveWrapper>
         );
     }
 

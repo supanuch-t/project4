@@ -3,98 +3,45 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
 import HomeScreen from "./HomeScreen";
-import ReportScreen from "./ReportScreen";
-import AddExpenseScreen from "./AddExpenseScreen";
 import BudgetScreen from "./BudgetScreen";
+import ReportScreen from "./ReportScreen";
 import ProfileScreen from "./ProfileScreen";
+import HistoryScreen from "./HistoryScreen";
+import ResponsiveWrapper from "../components/ResponsiveWrapper";
 
 const Tab = createBottomTabNavigator();
 
-function BottomTabs() {
+export default function BottomTabs() {
     return (
-        <Tab.Navigator
-            screenOptions={{
-                headerShown: false,
-                tabBarStyle: {
-                    backgroundColor: "#111827",
-                    height: 60
-                },
-                tabBarActiveTintColor: "#22C55E",
-                tabBarInactiveTintColor: "#999"
-            }}
-        >
-            <Tab.Screen
-                name="หน้าหลัก"
-                component={HomeScreen}
-                options={{
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons
-                            name="home-outline"
-                            size={24}
-                            color={color}
-                        />
-                    )
-                }}
-            />
-
-            <Tab.Screen
-                name="ประวัติ"
-                component={ReportScreen}
-                options={{
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons
-                            name="list-outline"
-                            size={24}
-                            color={color}
-                        />
-                    )
-                }}
-            />
-
-            <Tab.Screen
-                name="เพิ่ม"
-                component={AddExpenseScreen}
-                options={{
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons
-                            name="add-circle"
-                            size={30}
-                            color={color}
-                        />
-                    )
-                }}
-            />
-
-            <Tab.Screen
-                name="งบประมาณ"
-                component={BudgetScreen}
-                options={{
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons
-                            name="stats-chart-outline"
-                            size={24}
-                            color={color}
-                        />
-                    )
-                }}
-            />
-
-            <Tab.Screen
-                name="โปรไฟล์"
-                component={ProfileScreen}
-                options={{
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons
-                            name="person-outline"
-                            size={24}
-                            color={color}
-                        />
-                    )
-                }}
-            />
-
-        </Tab.Navigator>
+        <ResponsiveWrapper>
+            <Tab.Navigator
+                screenOptions={({ route }) => ({
+                    headerShown: false,
+                    tabBarIcon: ({ color, size }) => {
+                        let iconName;
+                        if (route.name === "หน้าหลัก") iconName = "home";
+                        else if (route.name === "ประวัติ") iconName = "list";
+                        else if (route.name === "รายงาน") iconName = "pie-chart";
+                        else if (route.name === "งบประมาณ") iconName = "wallet";
+                        else if (route.name === "โปรไฟล์") iconName = "person";
+                        return <Ionicons name={iconName} size={size} color={color} />;
+                    },
+                    tabBarActiveTintColor: "#21D07A",
+                    tabBarInactiveTintColor: "#8F9BB3",
+                    tabBarStyle: {
+                        backgroundColor: "#17213A",
+                        borderTopColor: "#23304F",
+                        paddingBottom: 5,
+                        height: 60,
+                    },
+                })}
+            >
+                <Tab.Screen name="หน้าหลัก" component={HomeScreen} />
+                <Tab.Screen name="ประวัติ" component={HistoryScreen} />
+                <Tab.Screen name="รายงาน" component={ReportScreen} />
+                <Tab.Screen name="งบประมาณ" component={BudgetScreen} />
+                <Tab.Screen name="โปรไฟล์" component={ProfileScreen} />
+            </Tab.Navigator>
+        </ResponsiveWrapper>
     );
 }
-
-export default BottomTabs;

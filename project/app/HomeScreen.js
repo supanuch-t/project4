@@ -1,14 +1,17 @@
 import React, { useEffect, useState, useCallback } from "react";
 import {
     View, Text, FlatList, StyleSheet, SafeAreaView,
-    TouchableOpacity, RefreshControl, ActivityIndicator,
+    TouchableOpacity, RefreshControl, ActivityIndicator, Dimensions
 } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import { useAuth } from "./context/AuthContext";
+import { BarChart } from "react-native-chart-kit";
 
 const API = "http://10.0.2.2:3000/api";
+const screenWidth = Dimensions.get("window").width;
+const chartWidth = screenWidth > 800 ? 760 : screenWidth - 48; // Account for padding
 
 const CATEGORY_ICONS = {
     "อาหาร": "🍜", "เดินทาง": "🚌", "ที่พัก": "🏠",
@@ -16,64 +19,69 @@ const CATEGORY_ICONS = {
     "อื่นๆ": "📌", "เงินเดือน": "💼", "รายได้อื่น": "💰",
 };
 
-function getMonthLabel(date) {
-    return date.toLocaleDateString("th-TH", { month: "long", year: "numeric" });
-}
-
-function fmt(n) {
-    return Number(n).toLocaleString("th-TH", { minimumFractionDigits: 2 });
-}
+function fmt(n) { return Number(n).toLocaleString("th-TH", { minimumFractionDigits: 2 }); }
+function getMonthLabel() { return new Date().toLocaleDateString("th-TH", { month: "long", year: "numeric" }); }
 
 export default function HomeScreen() {
     const navigation = useNavigation();
     const { currentUser } = useAuth();
 
     const [expenses, setExpenses]       = useState([]);
-    const [summary, setSummary]         = useState({ totalIncome: 0, totalExpense: 0, balance: 0 });
+    const [summary, setSummary]         = useState({ totalIncome: 0, totalExpense: 0, balance: 0, byDay: [] });
     const [budget, setBudget]           = useState({ daily_budget: 0, monthly_budget: 0 });
-    const [todayTotal, setTodayTotal]   = useState(0);
+    const [userSettings, setUserSettings] = useState({ alert_threshold: 1000, push_enabled: 1 });
     const [loading, setLoading]         = useState(true);
     const [refreshing, setRefreshing]   = useState(false);
 
-    const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+    const currentMonth = new Date().toISOString().slice(0, 7);
 
     const loadData = async () => {
         if (!currentUser) return;
         try {
-            const [expRes, summRes, budRes, todayRes] = await Promise.all([
+            const [expRes, summRes, budRes, userRes] = await Promise.all([
                 axios.get(`${API}/expenses?userId=${currentUser.id}&month=${currentMonth}`),
                 axios.get(`${API}/summary?userId=${currentUser.id}&month=${currentMonth}`),
                 axios.get(`${API}/budget?userId=${currentUser.id}`),
-                axios.get(`${API}/expenses/today?userId=${currentUser.id}`),
+                axios.get(`${API}/users/${currentUser.id}`),
             ]);
 
-            if (expRes.data.success)     setExpenses(expRes.data.data);
-            if (summRes.data.success)    setSummary(summRes.data.data);
-            if (budRes.data.success)     setBudget(budRes.data.data);
-            if (todayRes.data.success) {
-                const t = todayRes.data.data.reduce((s, i) => s + Number(i.amount), 0);
-                setTodayTotal(t);
-            }
+            if (expRes.data.success)  setExpenses(expRes.data.data);
+            if (summRes.data.success) setSummary(summRes.data.data);
+            if (budRes.data.success)  setBudget(budRes.data.data);
+            if (userRes.data?.success) setUserSettings(userRes.data.data);
         } catch (err) {
-            console.log("โหลดข้อมูลไม่สำเร็จ:", err.message);
+            console.log(err.message);
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
     };
 
-    // โหลดใหม่ทุกครั้งที่กลับมาหน้านี้
     useFocusEffect(useCallback(() => { loadData(); }, [currentUser]));
 
     const onRefresh = () => { setRefreshing(true); loadData(); };
 
-    // ─── Budget alert ────────────────────────────────────────────────────────
-    const overMonthly = budget.monthly_budget > 0 && summary.totalExpense > budget.monthly_budget;
-    const overDaily   = budget.daily_budget > 0 && todayTotal > budget.daily_budget;
+    const me = summary.totalExpense;
+    const mb = budget.monthly_budget;
+    const overMonthly = mb > 0 && me > mb;
+
+    // Build 30-day chart data
+    const daysInMonth = new Date(currentMonth + "-01");
+    const dayCount = new Date(daysInMonth.getFullYear(), daysInMonth.getMonth() + 1, 0).getDate();
+    const barLabels = [];
+    const barData = [];
+    for (let d = 1; d <= dayCount; d += Math.ceil(dayCount / 6)) { // Show ~6 labels to prevent crowding
+        barLabels.push(String(d));
+        const found = summary.byDay.find(x => x.day === d);
+        barData.push(found ? Number(found.total) : 0);
+    }
+
+    // Check for large transactions alert
+    const largeTx = expenses.find(e => e.type === "expense" && Number(e.amount) >= userSettings.alert_threshold);
 
     if (loading) {
         return (
-            <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0B1120" }}>
+            <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#060A13" }}>
                 <ActivityIndicator size="large" color="#21D07A" />
             </View>
         );
@@ -82,7 +90,7 @@ export default function HomeScreen() {
     return (
         <SafeAreaView style={s.safe}>
             <FlatList
-                data={expenses.slice(0, 20)}
+                data={expenses.slice(0, 10)} // only show 10 on dashboard
                 keyExtractor={item => item.id.toString()}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#21D07A" />}
                 ListHeaderComponent={() => (
@@ -90,78 +98,111 @@ export default function HomeScreen() {
                         {/* Topbar */}
                         <View style={s.topbar}>
                             <View>
-                                <Text style={s.hello}>สวัสดี 👋</Text>
+                                <Text style={s.hello}>ยินดีต้อนรับ 👋</Text>
                                 <Text style={s.username}>{currentUser?.username || "ผู้ใช้งาน"}</Text>
                             </View>
-                            <View style={s.avatar}>
-                                <Text style={{ color: "#fff", fontSize: 20, fontWeight: "bold" }}>
-                                    {(currentUser?.username || "U")[0].toUpperCase()}
-                                </Text>
-                            </View>
+                            <TouchableOpacity onPress={() => navigation.navigate("โปรไฟล์")}>
+                                <View style={s.avatar}>
+                                    <Text style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>
+                                        {(currentUser?.username || "U")[0].toUpperCase()}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
                         </View>
 
-                        {/* Budget Alert */}
-                        {(overMonthly || overDaily) && (
-                            <View style={s.alertBanner}>
-                                <Ionicons name="warning" size={18} color="#FCD34D" />
-                                <Text style={s.alertText}>
-                                    {overMonthly ? "⚠️ ค่าใช้จ่ายเดือนนี้เกินงบประมาณที่กำหนด!" : ""}
-                                    {overMonthly && overDaily ? "\n" : ""}
-                                    {overDaily ? "⚠️ ค่าใช้จ่ายวันนี้เกินงบประมาณรายวัน!" : ""}
-                                </Text>
-                            </View>
+                        {/* Alerts */}
+                        {userSettings.push_enabled === 1 && (
+                            <>
+                                {overMonthly && (
+                                    <View style={[s.alertBanner, { borderColor: "#EF444455", backgroundColor: "rgba(239, 68, 68, 0.15)" }]}>
+                                        <Ionicons name="warning" size={20} color="#EF4444" />
+                                        <Text style={[s.alertText, { color: "#EF4444" }]}>เดือนนี้คุณใช้เงินเกินงบประมาณที่ตั้งไว้แล้ว!</Text>
+                                    </View>
+                                )}
+                                {largeTx && (
+                                    <View style={[s.alertBanner, { borderColor: "#FCD34D55", backgroundColor: "rgba(252, 211, 77, 0.15)" }]}>
+                                        <Ionicons name="notifications" size={20} color="#FCD34D" />
+                                        <Text style={[s.alertText, { color: "#FCD34D" }]}>
+                                            รายการใหญ่ล่าสุด: {largeTx.title} (฿{fmt(largeTx.amount)})
+                                        </Text>
+                                    </View>
+                                )}
+                            </>
                         )}
 
-                        {/* Balance Card */}
-                        <View style={[s.balanceCard, { backgroundColor: summary.balance >= 0 ? "#21D07A" : "#EF4444" }]}>
-                            <Text style={s.balanceTitle}>ยอดคงเหลือเดือนนี้</Text>
+                        {/* Balance Card (Glassmorphism) */}
+                        <View style={[s.balanceCard, { backgroundColor: summary.balance >= 0 ? "rgba(33, 208, 122, 0.9)" : "rgba(239, 68, 68, 0.9)" }]}>
+                            <Text style={s.balanceTitle}>ยอดคงเหลือสุทธิ</Text>
                             <Text style={s.balanceMoney}>฿ {fmt(summary.balance)}</Text>
-                            <Text style={s.balanceMonth}>{getMonthLabel(new Date())}</Text>
-                        </View>
-
-                        {/* Income / Expense row */}
-                        <View style={s.row}>
-                            <View style={s.smallCard}>
-                                <Ionicons name="trending-up" size={20} color="#21D07A" style={{ marginBottom: 6 }} />
-                                <Text style={s.cardTitle}>รายรับ</Text>
-                                <Text style={s.income}>฿ {fmt(summary.totalIncome)}</Text>
-                            </View>
-                            <View style={s.smallCard}>
-                                <Ionicons name="trending-down" size={20} color="#EF4444" style={{ marginBottom: 6 }} />
-                                <Text style={s.cardTitle}>รายจ่าย</Text>
-                                <Text style={s.expense}>฿ {fmt(summary.totalExpense)}</Text>
-                            </View>
-                        </View>
-
-                        {/* Monthly budget progress */}
-                        {budget.monthly_budget > 0 && (
-                            <View style={s.budgetCard}>
-                                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                                    <Text style={s.budgetLabel}>งบประมาณเดือนนี้</Text>
-                                    <Text style={s.budgetLabel}>฿ {fmt(summary.totalExpense)} / ฿ {fmt(budget.monthly_budget)}</Text>
+                            <Text style={s.balanceMonth}>{getMonthLabel()}</Text>
+                            <View style={s.row}>
+                                <View style={s.miniStat}>
+                                    <Ionicons name="arrow-down-circle" size={16} color="rgba(255,255,255,0.8)" />
+                                    <Text style={s.miniStatTxt}>รายรับ: ฿ {fmt(summary.totalIncome)}</Text>
                                 </View>
-                                <View style={s.progressBar}>
+                                <View style={s.miniStat}>
+                                    <Ionicons name="arrow-up-circle" size={16} color="rgba(255,255,255,0.8)" />
+                                    <Text style={s.miniStatTxt}>รายจ่าย: ฿ {fmt(summary.totalExpense)}</Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* Global Budget Progress */}
+                        {mb > 0 && (
+                            <View style={s.budgetCard}>
+                                <View style={s.budgetHeader}>
+                                    <Text style={s.budgetLabel}>งบประมาณรวมเดือนนี้</Text>
+                                    <Text style={s.budgetVal}>฿{fmt(me)} / ฿{fmt(mb)}</Text>
+                                </View>
+                                <View style={s.pbBg}>
                                     <View style={[
-                                        s.progressFill,
-                                        {
-                                            width: `${Math.min((summary.totalExpense / budget.monthly_budget) * 100, 100)}%`,
-                                            backgroundColor: overMonthly ? "#EF4444" : "#21D07A",
+                                        s.pbFill, 
+                                        { 
+                                            width: `${Math.min((me / mb) * 100, 100)}%`,
+                                            backgroundColor: overMonthly ? "#EF4444" : "#21D07A"
                                         }
                                     ]} />
                                 </View>
                             </View>
                         )}
 
-                        <Text style={s.subtitle}>รายการล่าสุด</Text>
+                        {/* 30-Day Bar Chart */}
+                        {barData.some(v => v > 0) && (
+                            <View style={s.chartCard}>
+                                <Text style={s.sectionTitle}>แนวโน้มรายวัน (30 วัน)</Text>
+                                <BarChart
+                                    data={{ labels: barLabels, datasets: [{ data: barData }] }}
+                                    width={chartWidth}
+                                    height={180}
+                                    chartConfig={{
+                                        backgroundColor: "#0F172A",
+                                        backgroundGradientFrom: "#0F172A",
+                                        backgroundGradientTo: "#0F172A",
+                                        color: (opacity = 1) => `rgba(167, 139, 250, ${opacity})`,
+                                        labelColor: (opacity = 1) => `rgba(143, 155, 179, ${opacity})`,
+                                        barPercentage: 0.6,
+                                        propsForDots: { r: "0" }
+                                    }}
+                                    style={{ borderRadius: 12, marginLeft: -10 }}
+                                    showValuesOnTopOfBars={false}
+                                    withInnerLines={false}
+                                />
+                            </View>
+                        )}
+
+                        <View style={s.sectionHeader}>
+                            <Text style={s.sectionTitle}>รายการล่าสุด</Text>
+                            <TouchableOpacity onPress={() => navigation.navigate("ประวัติ")}>
+                                <Text style={s.seeAll}>ดูทั้งหมด</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 )}
                 renderItem={({ item }) => (
                     <View style={s.card}>
                         <View style={s.itemLeft}>
-                            <View style={[s.iconCircle, { backgroundColor: item.type === "income" ? "#16423C" : "#2D1B1B" }]}>
-                                <Text style={{ fontSize: 20 }}>
-                                    {CATEGORY_ICONS[item.category] || "📌"}
-                                </Text>
+                            <View style={[s.iconCircle, { backgroundColor: item.type === "income" ? "rgba(33,208,122,0.15)" : "rgba(239,68,68,0.15)" }]}>
+                                <Text style={{ fontSize: 22 }}>{CATEGORY_ICONS[item.category] || "📌"}</Text>
                             </View>
                             <View style={{ flex: 1 }}>
                                 <Text style={s.name} numberOfLines={1}>{item.title || item.category}</Text>
@@ -177,7 +218,6 @@ export default function HomeScreen() {
                     <View style={s.empty}>
                         <Text style={s.emptyIcon}>💸</Text>
                         <Text style={s.emptyText}>ยังไม่มีรายการในเดือนนี้</Text>
-                        <Text style={s.emptySubText}>กด + เพื่อเพิ่มรายการแรก</Text>
                     </View>
                 )}
                 contentContainerStyle={{ paddingBottom: 100 }}
@@ -192,71 +232,67 @@ export default function HomeScreen() {
 }
 
 const s = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: "#0B1120" },
-    headerWrapper: { padding: 20, paddingBottom: 8 },
-    topbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-    hello: { fontSize: 24, fontWeight: "bold", color: "#fff" },
-    username: { color: "#8F9BB3", fontSize: 15, marginTop: 2 },
+    safe: { flex: 1, backgroundColor: "#060A13" },
+    headerWrapper: { padding: 24, paddingBottom: 8 },
+    topbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
+    hello: { fontSize: 26, fontWeight: "bold", color: "#fff" },
+    username: { color: "#A78BFA", fontSize: 16, marginTop: 2, fontWeight: "600" },
     avatar: {
-        width: 48, height: 48, borderRadius: 24,
-        backgroundColor: "#21D07A", justifyContent: "center", alignItems: "center",
+        width: 50, height: 50, borderRadius: 25,
+        backgroundColor: "rgba(167, 139, 250, 0.2)", justifyContent: "center", alignItems: "center",
+        borderWidth: 1, borderColor: "rgba(167, 139, 250, 0.5)",
     },
     alertBanner: {
-        flexDirection: "row", alignItems: "center",
-        backgroundColor: "#3B2F00", borderRadius: 12,
-        padding: 12, marginBottom: 14, gap: 8,
-        borderWidth: 1, borderColor: "#FCD34D44",
+        flexDirection: "row", alignItems: "center", borderRadius: 12,
+        padding: 14, marginBottom: 16, gap: 10, borderWidth: 1,
     },
-    alertText: { color: "#FCD34D", fontSize: 13, flex: 1 },
+    alertText: { fontSize: 14, flex: 1, fontWeight: "600" },
     balanceCard: {
-        borderRadius: 20, padding: 24, marginBottom: 16, elevation: 6,
+        borderRadius: 24, padding: 24, marginBottom: 24,
+        shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 15, elevation: 10,
     },
-    balanceTitle: { color: "rgba(255,255,255,0.85)", fontSize: 14 },
-    balanceMoney: { color: "#fff", fontSize: 36, fontWeight: "bold", marginTop: 8 },
-    balanceMonth: { color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 4 },
-    row: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 16 },
-    smallCard: {
-        backgroundColor: "#17213A", flex: 1, padding: 18,
-        borderRadius: 18, borderWidth: 1, borderColor: "#23304F",
-    },
-    cardTitle: { color: "#8F9BB3", fontSize: 13, marginBottom: 4 },
-    income: { color: "#21D07A", fontSize: 22, fontWeight: "bold" },
-    expense: { color: "#EF4444", fontSize: 22, fontWeight: "bold" },
+    balanceTitle: { color: "rgba(255,255,255,0.85)", fontSize: 15 },
+    balanceMoney: { color: "#fff", fontSize: 40, fontWeight: "bold", marginTop: 8 },
+    balanceMonth: { color: "rgba(255,255,255,0.7)", fontSize: 14, marginTop: 4, marginBottom: 16 },
+    row: { flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.2)", paddingTop: 16 },
+    miniStat: { flexDirection: "row", alignItems: "center", gap: 6 },
+    miniStatTxt: { color: "#fff", fontSize: 14, fontWeight: "500" },
     budgetCard: {
-        backgroundColor: "#17213A", borderRadius: 16, padding: 16,
-        marginBottom: 20, borderWidth: 1, borderColor: "#23304F",
+        backgroundColor: "#0F172A", borderRadius: 16, padding: 18,
+        marginBottom: 24, borderWidth: 1, borderColor: "#1E293B",
     },
-    budgetLabel: { color: "#8F9BB3", fontSize: 13 },
-    progressBar: {
-        height: 8, backgroundColor: "#23304F", borderRadius: 4, marginTop: 10, overflow: "hidden",
+    budgetHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
+    budgetLabel: { color: "#94A3B8", fontSize: 14, fontWeight: "500" },
+    budgetVal: { color: "#fff", fontSize: 14, fontWeight: "bold" },
+    pbBg: { height: 10, backgroundColor: "#1E293B", borderRadius: 5, overflow: "hidden" },
+    pbFill: { height: "100%", borderRadius: 5 },
+    chartCard: {
+        backgroundColor: "#0F172A", borderRadius: 20, padding: 20,
+        marginBottom: 24, borderWidth: 1, borderColor: "#1E293B",
+        overflow: "hidden"
     },
-    progressFill: { height: "100%", borderRadius: 4 },
-    subtitle: { fontSize: 18, fontWeight: "bold", color: "#fff", marginBottom: 12 },
+    sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+    sectionTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
+    seeAll: { color: "#A78BFA", fontSize: 14, fontWeight: "600" },
     card: {
-        backgroundColor: "#17213A", marginHorizontal: 20, marginBottom: 10,
-        borderRadius: 16, padding: 14, flexDirection: "row",
+        backgroundColor: "#0F172A", marginHorizontal: 24, marginBottom: 12,
+        borderRadius: 16, padding: 16, flexDirection: "row",
         justifyContent: "space-between", alignItems: "center",
-        borderWidth: 1, borderColor: "#23304F",
+        borderWidth: 1, borderColor: "#1E293B",
     },
-    itemLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
-    iconCircle: {
-        width: 44, height: 44, borderRadius: 12,
-        justifyContent: "center", alignItems: "center",
-    },
-    name: { color: "#fff", fontSize: 15, fontWeight: "600" },
-    category: { color: "#8F9BB3", fontSize: 12, marginTop: 2 },
-    money: { fontSize: 16, fontWeight: "bold" },
-    empty: { alignItems: "center", paddingVertical: 60 },
-    emptyIcon: { fontSize: 48, marginBottom: 16 },
-    emptyText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
-    emptySubText: { color: "#8F9BB3", fontSize: 14, marginTop: 6 },
+    itemLeft: { flexDirection: "row", alignItems: "center", gap: 14, flex: 1 },
+    iconCircle: { width: 48, height: 48, borderRadius: 14, justifyContent: "center", alignItems: "center" },
+    name: { color: "#fff", fontSize: 16, fontWeight: "600", marginBottom: 4 },
+    category: { color: "#94A3B8", fontSize: 13 },
+    money: { fontSize: 17, fontWeight: "bold" },
+    empty: { alignItems: "center", paddingVertical: 40 },
+    emptyIcon: { fontSize: 40, marginBottom: 16 },
+    emptyText: { color: "#94A3B8", fontSize: 16 },
     fab: {
-        position: "absolute", right: 24, bottom: 28,
-        width: 60, height: 60, borderRadius: 30,
+        position: "absolute", right: 24, bottom: 24,
+        width: 64, height: 64, borderRadius: 32,
         backgroundColor: "#21D07A",
         justifyContent: "center", alignItems: "center",
-        elevation: 10,
-        shadowColor: "#21D07A", shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.5, shadowRadius: 8,
+        shadowColor: "#21D07A", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8,
     },
 });

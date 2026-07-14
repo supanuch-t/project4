@@ -166,4 +166,32 @@ router.post("/budget", (req, res) => {
     });
 });
 
+// ─── GET CATEGORY BUDGETS ─────────────────────────────────────────────────────
+router.get("/budget/category", (req, res) => {
+    const { userId, month } = req.query;
+    if (!userId || !month) return res.json({ success: false, message: "ต้องระบุ userId และ month" });
+
+    const sql = "SELECT category, amount FROM category_budgets WHERE user_id = ? AND month = ?";
+    db.query(sql, [userId, month], (err, result) => {
+        if (err) return res.status(500).json({ success: false });
+        res.json({ success: true, data: result });
+    });
+});
+
+// ─── SET CATEGORY BUDGET ──────────────────────────────────────────────────────
+router.post("/budget/category", (req, res) => {
+    const { userId, category, amount, month } = req.body;
+    if (!userId || !category || !month) return res.json({ success: false });
+
+    const sql = `
+        INSERT INTO category_budgets (user_id, category, amount, month)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE amount = VALUES(amount)
+    `;
+    db.query(sql, [userId, category, amount, month], (err) => {
+        if (err) return res.status(500).json({ success: false, error: err });
+        res.json({ success: true });
+    });
+});
+
 module.exports = router;
