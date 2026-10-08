@@ -1,5 +1,4 @@
-const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+require('dotenv').config();
 process.env.TZ = "Asia/Bangkok";
 const express = require('express');
 const cors = require('cors');
@@ -56,17 +55,6 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/personal', personalRoutes);
 app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/bill-split', billSplitRoutes);
-
-// Legacy routes compatibility
-try {
-  const authRoute = require('./routes/auth');
-  const expensesRoute = require('./routes/expenses');
-  app.use('/api', authRoute);
-  app.use('/api', expensesRoute);
-  console.log('✅ Legacy MySQL routes (/api/login, /api/expenses, etc.) mounted successfully');
-} catch (e) {
-  console.error('❌ Failed to mount legacy MySQL routes:', e);
-}
 
 // จับ error ที่หลุดจาก route (เช่น multer พัง) ให้เป็น JSON เสมอ
 // eslint-disable-next-line no-unused-vars
