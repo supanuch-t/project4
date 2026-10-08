@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } fr
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { API_URL } from '@/lib/api';
 import { setScannedImage } from '@/utils/scannedImageStore';
@@ -11,6 +11,9 @@ import { setScannedImage } from '@/utils/scannedImageStore';
 export default function ScanReceiptScreen() {
   const router = useRouter();
   const cameraRef = useRef(null);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [flash, setFlash] = useState(false);
+  const [loading, setLoading] = useState(false);
   const params = useLocalSearchParams();
   const returnTo = params.returnTo ? String(params.returnTo) : null;
   const groupId = params.groupId ? String(params.groupId) : null;
@@ -42,9 +45,7 @@ export default function ScanReceiptScreen() {
       }
     } catch {
       Alert.alert('ข้อผิดพลาด', 'ไม่สามารถถ่ายภาพได้ กรุณาลองใหม่อีกครั้ง');
-        } finally {
-      setLoading(false);
-    }}
+    }
   };
 
   const processOCR = async (imageUri) => {
@@ -108,22 +109,7 @@ export default function ScanReceiptScreen() {
         return;
       }
 
-        router.push({
-          pathname: '/add-group-expense',
-          params: {
-            groupId,
-            ocr_amount: String(data.totalAmount ?? data.netTotal ?? data.total ?? ''),
-            ocr_merchant: data.merchant || '',
-            ocr_netAmount: String(data.netTotal ?? data.total ?? ''),
-            ocr_vat: String(data.vat ?? '0'),
-            ocr_serviceCharge: String(data.serviceCharge ?? '0'),
-            ocr_items: JSON.stringify(data.items || []),
-            ocr_date: data.date || '',
-            ocr_parsed: data.parsedText || '',
-          },
-        });
-        return;
-      }
+      router.push({
         pathname: '/confirm-receipt',
         params: {
           merchant: data.merchant || '',
