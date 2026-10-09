@@ -15,11 +15,12 @@ export default function ScanReceiptScreen() {
   const [flash, setFlash] = useState(false);
   const [loading, setLoading] = useState(false);
   const params = useLocalSearchParams();
+
   const returnTo = params.returnTo ? String(params.returnTo) : null;
   const groupId = params.groupId ? String(params.groupId) : null;
 
   useEffect(() => {
-    if (!permission) requestPermission();
+    if (!permission?.granted) requestPermission();
   }, [permission, requestPermission]);
 
   const handlePickImage = async () => {
@@ -83,14 +84,14 @@ export default function ScanReceiptScreen() {
         throw new Error('เซิร์ฟเวอร์ตอบกลับข้อมูลที่ไม่ถูกต้อง');
       }
 
-      // เก็บรูปเป็น base64 data URI ไว้ใน memory (ไม่ใช้ file/content URI ที่โดน
-      // bug ของ Expo Go) แล้วให้หน้า confirm-receipt ดึงมาใช้ตรงๆ ผ่าน getScannedImage()
+      // เก็บรูปเป็น base64 data URI ไว้ใน memory
       setScannedImage(`data:image/jpeg;base64,${base64Image}`);
 
-            const isSlip = data.documentType === 'slip' || data.documentType === 'transfer_slip';
+      const isSlip = data.documentType === 'slip' || data.documentType === 'transfer_slip';
       const returnToRoute = params.returnTo ? String(params.returnTo) : null;
       const groupIdRoute = params.groupId ? String(params.groupId) : null;
 
+      // กรณีมาจากหน้า Add Group Expense
       if (returnToRoute === 'add-group-expense' && groupIdRoute) {
         router.push({
           pathname: '/add-group-expense',
@@ -109,25 +110,21 @@ export default function ScanReceiptScreen() {
         return;
       }
 
+      // กรณีสแกนทั่วไป ไปยังหน้า Confirm Receipt
       router.push({
         pathname: '/confirm-receipt',
         params: {
           merchant: data.merchant || '',
-
-          // 1. ปรับการเช็กยอดสุทธิ: ลองหา netTotal / totalAmount ก่อน ถ้าไม่มีค่อยใช้ data.total
           amount: String(data.totalAmount ?? data.netTotal ?? data.total ?? ''),
           vat: String(data.vat ?? '0'),
           serviceCharge: String(data.serviceCharge ?? '0'),
-
           date: data.date || '',
           parsedText: data.parsedText || '',
           categoryId: data.categoryId != null ? String(data.categoryId) : '',
           documentType: isSlip ? 'transfer_slip' : 'receipt',
           bankName: data.bankName || '',
           transactionId: data.transactionId || '',
-
-          // 2. ✨ เพิ่มการส่ง lineItems (แปลง Array เป็น JSON String)
-          lineItems: JSON.stringify(data.items || []),        
+          lineItems: JSON.stringify(data.items || []),
         },
       });
     } catch (error) {
