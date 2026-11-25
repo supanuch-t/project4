@@ -180,9 +180,11 @@ export default function GroupSettleScreen() {
   useEffect(() => {
     if (!groupId) return;
     if (ctx?.settle_strategy) {
-      setStrategy(ctx.settle_strategy);
-      setSelectedHubPerson(ctx.hub_person || null);
-      setIsStrategyLocked(true);
+      Promise.resolve().then(() => {
+        setStrategy(ctx.settle_strategy);
+        setSelectedHubPerson(ctx.hub_person || null);
+        setIsStrategyLocked(true);
+      });
       return;
     }
     AsyncStorage.getItem(`settle_pref_${groupId}`).then((saved) => {
@@ -308,13 +310,13 @@ export default function GroupSettleScreen() {
   }, [groupId, nameOf, strategy, selectedHubPerson, fetchSettlement, isGroupSettled]);
 
   useEffect(() => {
-    if (isGroupSettled) {
-      setCalcLoading(false);
-      setSimplifiedDebts([]);
-      return;
-    }
     let cancelled = false;
     const run = async () => {
+      if (isGroupSettled) {
+        setCalcLoading(false);
+        setSimplifiedDebts([]);
+        return;
+      }
       try {
         const result = await fetchSettlement(groupId, {
           strategy,
